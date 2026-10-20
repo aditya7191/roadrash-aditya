@@ -1,0 +1,194 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Road Rash - Developer: Aditya Solanki</title>
+<style>html,body{margin:0;height:100%;background:#000;overflow:hidden;touch-action:none;font-family:Arial,sans-serif}
+canvas{display:block;width:100vw;height:100vh}
+*{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent}
+#touch{position:fixed;inset:0;pointer-events:none;display:block;z-index:5}
+.b{position:absolute;pointer-events:auto;touch-action:none;border-radius:50%;background:rgba(255,255,255,.22);border:3px solid rgba(255,255,255,.8);color:#fff;font-weight:bold;display:flex;align-items:center;justify-content:center;text-shadow:0 0 4px #000;box-sizing:border-box;--s:min(22vh,110px);width:var(--s);height:var(--s);font-size:calc(var(--s)*.22)}
+.b.on{background:rgba(255,220,60,.55)}
+.b.big{--s:min(30vh,150px);font-size:calc(var(--s)*.2)}
+.b.sm{--s:min(14vh,64px);font-size:calc(var(--s)*.2);border-radius:14px}
+#rot{position:fixed;inset:0;flex-direction:column;background:#000e;color:#fff;display:none;align-items:center;justify-content:center;text-align:center;font:bold 26px Arial;z-index:9;padding:20px}
+@media (orientation:portrait){#rot{display:flex}}
+</style></head><body><canvas id="c"></canvas>
+<div id="touch">
+<div class="b" data-k="left" style="left:3vw;bottom:6vh">&#9664;</div>
+<div class="b" data-k="right" style="left:calc(6vw + min(22vh,110px));bottom:6vh">&#9654;</div>
+<div class="b big" data-k="up" style="right:3vw;bottom:5vh">GAS</div>
+<div class="b" data-k="down" style="right:calc(3vw + min(30vh,150px) + 2vw);bottom:3vh">BRAKE</div>
+<div class="b" data-k="punch" style="right:calc(3vw + min(30vh,150px) + 2vw);bottom:calc(6vh + min(22vh,110px))">PUNCH</div>
+<div class="b" data-k="kick" style="right:3vw;bottom:calc(8vh + min(30vh,150px))">KICK</div>
+<div class="b sm" id="ag" style="left:50%;transform:translateX(-50%);top:2vh">AUTO<br>GAS</div>
+</div>
+<div id="rot">&#128241;&#8635;<br>Phone ko landscape (tircha) karo<br>Rotate phone to landscape<br><small>Developer: Aditya Solanki</small></div>
+<script>
+const cv=document.getElementById('c'),g=cv.getContext('2d');
+let W,H,DPR=1;function rs(){DPR=Math.min(2,devicePixelRatio||1);W=innerWidth;H=innerHeight;cv.width=W*DPR;cv.height=H*DPR;g.setTransform(DPR,0,0,DPR,0,0)}addEventListener('resize',rs);rs();
+const SEG=200,RW=2000,LANES=3,CAMH=1000,FOV=100,CD=1/Math.tan(FOV/2*Math.PI/180),DRAW=300,MAXS=SEG*60,LEN=4000;
+const key={};const km={ArrowLeft:'left',a:'left',A:'left',ArrowRight:'right',d:'right',D:'right',ArrowUp:'up',w:'up',W:'up',ArrowDown:'down',s:'down',S:'down',j:'punch',J:'punch',k:'kick',K:'kick'};
+addEventListener('keydown',e=>{if(km[e.key]){key[km[e.key]]=1;e.preventDefault()}if(e.key==='Enter'||e.key===' ')startPress()});
+addEventListener('keyup',e=>{if(km[e.key]){const k=km[e.key];key[k]=touchKey[k]?1:0}});
+let autoGas=0;const ptr={};
+function btnAt(x,y){const el=document.elementFromPoint(x,y);const b=el&&el.closest&&el.closest('.b[data-k]');return b?b.dataset.k:null}
+function syncKeys(){const held={};for(const id in ptr)if(ptr[id])held[ptr[id]]=1;['left','right','up','down','punch','kick'].forEach(k=>{const on=!!held[k]||(k==='up'&&autoGas&&!held.down&&!kbd.down);touchKey[k]=on;key[k]=(on||kbd[k])?1:0});document.querySelectorAll('.b[data-k]').forEach(b=>b.classList.toggle('on',!!held[b.dataset.k]))}
+const touchKey={},kbd={};
+addEventListener('keydown',e=>{if(km[e.key])kbd[km[e.key]]=1});addEventListener('keyup',e=>{if(km[e.key])kbd[km[e.key]]=0});
+let triedFS=0;function firstTap(){if(triedFS)return;triedFS=1;try{const d=document.documentElement,r=d.requestFullscreen||d.webkitRequestFullscreen;if(r){const p=r.call(d);p&&p.then&&p.then(()=>{try{screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}).catch(()=>{})}}catch(e){}try{screen.orientation&&screen.orientation.lock&&screen.orientation.lock('landscape').catch(()=>{})}catch(e){}}
+function pdown(e){e.preventDefault();firstTap();if(e.target.id==='ag'){autoGas=!autoGas;document.getElementById('ag').classList.toggle('on',!!autoGas);syncKeys();return}
+ if(state!=='race'){startPress();return}ptr[e.pointerId]=btnAt(e.clientX,e.clientY);try{e.target.releasePointerCapture&&e.target.releasePointerCapture(e.pointerId)}catch(_){}syncKeys()}
+function pmove(e){if(!(e.pointerId in ptr))return;e.preventDefault();const k=btnAt(e.clientX,e.clientY);if(k!==ptr[e.pointerId]){ptr[e.pointerId]=k;syncKeys()}}
+function pup(e){if(e.pointerId in ptr){delete ptr[e.pointerId];syncKeys()}}
+addEventListener('pointerdown',pdown,{passive:false});addEventListener('pointermove',pmove,{passive:false});
+addEventListener('pointerup',pup);addEventListener('pointercancel',pup);addEventListener('blur',()=>{for(const id in ptr)delete ptr[id];syncKeys()});
+['touchstart','touchmove','touchend','gesturestart','dblclick','contextmenu'].forEach(t=>addEventListener(t,e=>e.preventDefault(),{passive:false}));
+// track
+let segs=[];
+function eio(a,b,p){return a+(b-a)*((-Math.cos(p*Math.PI)/2)+0.5)}
+function addRoad(n,curve,hill){let sy=segs.length?segs[segs.length-1].p2y:0;const tot=n*3;for(let i=0;i<tot;i++){const t=i/tot;const c=i<n?eio(0,curve,i/n):i<2*n?curve:eio(curve,0,(i-2*n)/n);const y=eio(sy,sy+hill*SEG,t);const idx=segs.length;const py=idx?segs[idx-1].p2y:0;segs.push({i:idx,p1y:py,p2y:y,curve:c,sprites:[],dark:Math.floor(idx/3)%2})}}
+function build(){segs=[];const r=(a,b)=>a+Math.random()*(b-a);addRoad(25,0,0);while(segs.length<LEN){addRoad(Math.floor(r(15,50)),[0,0,2,-2,4,-4,6,-6][Math.floor(r(0,8))],[0,0,20,-20,40,-40][Math.floor(r(0,6))])}
+segs.length=LEN;segs[LEN-1].p2y=0;
+for(let i=10;i<LEN;i+=Math.floor(r(4,12))){segs[i].sprites.push({t:Math.random()<.6?'tree':(Math.random()<.5?'pole':'rock'),x:(Math.random()<.5?-1:1)*r(1.3,3)})}}
+const TRACK=()=>LEN*SEG;
+function seg(z){return segs[((Math.floor(z/SEG)%LEN)+LEN)%LEN]}
+// entities
+let state='title',P,riders,cars,msg='',msgT=0,finishOrder,time0,bestPos;
+const NAMES=['Viper','Natasha','Biff','Slater','Rocco','Axel'],COLS=['#e33','#3c3','#fc0','#c3f','#3cf','#f80'];
+function reset(){build();P={x:0,z:0,s:0,hp:100,crash:0,atk:0,atkT:0,lap:0,name:'YOU',col:'#2af',fin:0,lean:0,cool:0};
+riders=[];const n=5;for(let i=0;i<n;i++)riders.push({x:(i%3-1)*0.6,z:SEG*(4+i*3),s:0,max:MAXS*(0.82+Math.random()*0.14),hp:100,crash:0,atk:0,atkT:0,name:NAMES[i],col:COLS[i],fin:0,lean:0,cool:0,tx:0});
+cars=[];for(let i=0;i<40;i++)cars.push({x:(Math.random()*2-1)*0.75,z:SEG*(80+Math.random()*(LEN-100)),s:MAXS*(0.15+Math.random()*0.2),col:['#d22','#22d','#eee','#2a2','#dd2'][i%5]});
+finishOrder=[];time0=performance.now()}
+function startPress(){if(state==='title'||state==='result'){reset();state='race';}}
+function all(){return [P,...riders]}
+function position(){return all().filter(r=>r!==P&&(r.fin?(P.fin?r.fin<P.fin:1):(!P.fin&&r.z>P.z))).length+1}
+function say(m){msg=m;msgT=1.5}
+function hit(att,v,kind){if(v.crash||v.fin)return;const d=kind==='kick'?18:12;v.hp-=d;v.x+=(v.x>att.x?1:-1)*(kind==='kick'?0.25:0.12);v.s*=0.9;if(att===P)say(kind.toUpperCase()+'! '+v.name);if(v===P)say(att.name+' hits you!');if(v.hp<=0)crash(v)}
+function crash(r){r.crash=2.2;r.s=0;r.hp=0;if(r===P)say('CRASHED!')}
+function update(dt){
+ if(msgT>0)msgT-=dt;
+ const L=TRACK();
+ // player
+ if(!P.fin){
+ if(P.crash>0){P.crash-=dt;if(P.crash<=0){P.hp=100;P.x=0;}}
+ else{
+  if(key.up)P.s+=MAXS*0.35*dt;else if(key.down)P.s-=MAXS*1.2*dt;else P.s-=MAXS*0.15*dt;
+  const sp=P.s/MAXS;P.lean=0;
+  if(key.left){P.x-=dt*2.2*sp;P.lean=-1}if(key.right){P.x+=dt*2.2*sp;P.lean=1}
+  P.x-=dt*2*sp*sp*seg(P.z+CAMH).curve*0.3;
+  if(Math.abs(P.x)>1.1&&P.s>MAXS/4)P.s-=MAXS*0.8*dt;
+  P.x=Math.max(-2.5,Math.min(2.5,P.x));P.s=Math.max(0,Math.min(MAXS,P.s));
+  P.cool-=dt;if(P.atkT>0)P.atkT-=dt;
+  if((key.punch||key.kick)&&P.cool<=0){const kind=key.kick?'kick':'punch';P.atk=kind;P.atkT=0.25;P.cool=0.45;
+   for(const r of riders){const dz=r.z-P.z,dx=r.x-P.x;if(Math.abs(dz)<SEG*1.5&&Math.abs(dx)<0.45&&Math.abs(dx)>0.05||Math.abs(dz)<SEG*1.5&&Math.abs(dx)<=0.05)hit(P,r,kind)}}
+ }
+ P.z+=P.s*dt;}
+ // AI
+ for(const r of riders){if(r.fin){r.z+=r.s*dt;r.s*=0.98;continue}
+  if(r.crash>0){r.crash-=dt;if(r.crash<=0){r.hp=100;r.x=(Math.random()-.5)}continue}
+  const tg=r.max*(r.z<P.z-SEG*30?1.08:1)*(r.z>P.z+SEG*60?0.9:1);r.s+=(tg-r.s)*dt*0.6;
+  // avoid cars
+  for(const c of cars){const dz=c.z-r.z;if(dz>0&&dz<SEG*12&&Math.abs(c.x-r.x)<0.4){r.tx=c.x>0?c.x-0.6:c.x+0.6}}
+  if(Math.random()<dt*0.3)r.tx=(Math.random()*2-1)*0.7;
+  const dzp=P.z-r.z,dxp=P.x-r.x;if(Math.abs(dzp)<SEG*3&&!P.crash&&!P.fin)r.tx=P.x-Math.sign(dxp||1)*0.3;
+  r.x+=Math.max(-1,Math.min(1,(r.tx-r.x)*3))*dt;r.lean=Math.sign(r.tx-r.x)*(Math.abs(r.tx-r.x)>0.05);
+  r.cool-=dt;if(r.atkT>0)r.atkT-=dt;
+  if(r.cool<=0&&!P.crash&&!P.fin&&Math.abs(dzp)<SEG*1.3&&Math.abs(dxp)<0.45&&Math.random()<0.6){r.atk=Math.random()<.5?'punch':'kick';r.atkT=0.25;r.cool=1+Math.random()*1.2;hit(r,P,r.atk)}
+  else if(r.cool<=0)r.cool=0.3;
+  r.z+=r.s*dt;
+  for(const c of cars){if(Math.abs(c.z-r.z)<SEG*0.6&&Math.abs(c.x-r.x)<0.3)crash(r)}
+ }
+ // cars
+ for(const c of cars){c.z+=c.s*dt;if(!P.crash&&!P.fin&&Math.abs(c.z-P.z)<SEG*0.6&&Math.abs(c.x-P.x)<0.32){crash(P)}}
+ // finish
+ for(const r of all()){if(!r.fin&&r.z>=L-SEG*3){r.fin=finishOrder.length+1;finishOrder.push(r);if(r===P){bestPos=r.fin;P.time=(performance.now()-time0)/1000;setTimeout(()=>state='result',2000)}}}
+}
+// rendering
+function proj(wx,wy,wz,cx,cy,cz){const dz=wz-cz;const s=CD/dz;return{x:Math.round(W/2+s*(wx-cx)*W/2),y:Math.round(H/2-s*(wy-cy)*H/2),w:Math.round(s*RW*W/2),s}}
+function poly(x1,y1,w1,x2,y2,w2,c){g.fillStyle=c;g.beginPath();g.moveTo(x1-w1,y1);g.lineTo(x2-w2,y2);g.lineTo(x2+w2,y2);g.lineTo(x1+w1,y1);g.fill()}
+function bg(camY){const sk=g.createLinearGradient(0,0,0,H*0.6);sk.addColorStop(0,'#3a6fd8');sk.addColorStop(1,'#f5b36b');g.fillStyle=sk;g.fillRect(0,0,W,H);
+ g.fillStyle='#ffd';g.beginPath();g.arc(W*0.75,H*0.25,40,0,7);g.fill();
+ const off=(P.z/SEG*0.02+bgOff)%1;g.fillStyle='#5a4a7a';g.beginPath();g.moveTo(0,H*0.55);for(let i=0;i<=20;i++){const x=i/20*W;g.lineTo(x,H*0.55-60-Math.abs(Math.sin(i*1.7+off*6))*90)}g.lineTo(W,H*0.55);g.fill();
+ g.fillStyle='#3f6a3a';g.beginPath();g.moveTo(0,H*0.6);for(let i=0;i<=30;i++){g.lineTo(i/30*W,H*0.58-Math.abs(Math.sin(i*2.3+off*9))*40)}g.lineTo(W,H*0.6);g.fill()}
+let bgOff=0;
+function drawBike(x,y,sc,r,isP){const s=sc;g.save();g.translate(x,y);g.scale(s,s);g.rotate((r.lean||0)*0.15);
+ if(r.crash>0){g.rotate(Math.PI/2);}
+ g.fillStyle='rgba(0,0,0,.35)';g.beginPath();g.ellipse(0,0,40,8,0,0,7);g.fill();
+ g.fillStyle='#111';g.fillRect(-9,-38,18,38);// wheel
+ g.fillStyle='#555';g.fillRect(-6,-36,12,8);
+ g.fillStyle=r.col;g.beginPath();g.moveTo(-26,-40);g.lineTo(26,-40);g.lineTo(20,-62);g.lineTo(-20,-62);g.fill();
+ g.fillStyle='#222';g.fillRect(-30,-46,10,8);g.fillRect(20,-46,10,8);
+ g.fillStyle='#f33';g.fillRect(-16,-44,8,4);g.fillRect(8,-44,8,4);
+ // rider
+ g.fillStyle='#234';g.fillRect(-20,-80,40,22);// legs/seat
+ g.fillStyle=isP?'#135':'#333';g.beginPath();g.moveTo(-22,-80);g.lineTo(22,-80);g.lineTo(16,-118);g.lineTo(-16,-118);g.fill();
+ // arms
+ g.strokeStyle=isP?'#135':'#333';g.lineWidth=9;g.lineCap='round';
+ const a=r.atkT>0?r.atk:null;const side=r.atkSide||1;
+ g.beginPath();g.moveTo(-18,-112);g.lineTo(a==='punch'&&side<0?-60:-28,a==='punch'&&side<0?-110:-82);g.moveTo(18,-112);g.lineTo(a==='punch'&&side>0?60:28,a==='punch'&&side>0?-110:-82);g.stroke();
+ if(a==='kick'){g.strokeStyle='#234';g.lineWidth=11;g.beginPath();g.moveTo(side*18,-66);g.lineTo(side*62,-55);g.stroke()}
+ g.fillStyle=r.col;g.beginPath();g.arc(0,-130,15,0,7);g.fill();g.fillStyle='#000';g.fillRect(-11,-134,22,6);
+ g.restore()}
+function drawCar(x,y,s,c){g.save();g.translate(x,y);g.scale(s,s);g.fillStyle='rgba(0,0,0,.35)';g.fillRect(-62,-6,124,10);
+ g.fillStyle='#111';g.fillRect(-58,-22,22,22);g.fillRect(36,-22,22,22);
+ g.fillStyle=c.col;g.fillRect(-60,-70,120,52);g.fillRect(-45,-100,90,32);
+ g.fillStyle='#9cf';g.fillRect(-38,-95,76,22);g.fillStyle='#f22';g.fillRect(-55,-55,18,9);g.fillRect(37,-55,18,9);g.fillStyle='#ccc';g.fillRect(-25,-40,50,12);g.restore()}
+function drawSprite(sp,x,y,s){g.save();g.translate(x,y);g.scale(s,s);
+ if(sp.t==='tree'){g.fillStyle='#5a3a1a';g.fillRect(-12,-120,24,120);g.fillStyle='#1d6b2a';g.beginPath();g.moveTo(-80,-90);g.lineTo(0,-330);g.lineTo(80,-90);g.fill();g.fillStyle='#258a36';g.beginPath();g.moveTo(-60,-180);g.lineTo(0,-380);g.lineTo(60,-180);g.fill()}
+ else if(sp.t==='pole'){g.fillStyle='#888';g.fillRect(-5,-300,10,300);g.fillStyle='#fe8';g.fillRect(-25,-305,50,10)}
+ else{g.fillStyle='#777';g.beginPath();g.ellipse(0,-30,70,35,0,0,7);g.fill()}
+ g.restore()}
+function render(){
+ const base=seg(P.z),bi=base.i,pct=(P.z%SEG)/SEG;
+ const camY=CAMH+eio(base.p1y,base.p2y,pct)*0+ (base.p1y+(base.p2y-base.p1y)*pct);
+ bgOff+=base.curve*P.s/MAXS*0.0005;
+ bg();
+ let x=0,dx=-base.curve*pct,maxy=H;const list=[];
+ for(let n=0;n<DRAW;n++){const sg=segs[(bi+n)%LEN];const loop=(bi+n)>=LEN?TRACK():0;
+  const z1=sg.i*SEG+loop,z2=z1+SEG;
+  const p1=proj(-x+P.x*RW,sg.p1y,z1,0,camY,P.z-CAMH*0.0-SEG*0+ -CAMH*0.84*0 - 300);
+  const p2=proj(-x-dx+P.x*RW,sg.p2y,z2,0,camY,P.z-300);
+  // fix p1 cam
+  const q1=proj(P.x*RW- x,sg.p1y,z1,0,camY,P.z-300);
+  x+=dx;dx+=sg.curve;
+  sg.clip=maxy;sg.sx=q1.x;sg.sy=q1.y;sg.ss=q1.s;sg.sw=q1.w;sg.vis=false;
+  if(z1-(P.z-300)<=1||p2.y>=maxy)continue;
+  sg.vis=true;
+  const a={x:W-q1.x,y:q1.y,w:q1.w},b={x:W-p2.x,y:p2.y,w:p2.w};
+  sg.sx=a.x;
+  g.fillStyle=sg.dark?'#3d8a3d':'#47a047';g.fillRect(0,b.y,W,a.y-b.y);
+  poly(a.x,a.y,a.w*1.15,b.x,b.y,b.w*1.15,sg.dark?'#c22':'#eee');
+  poly(a.x,a.y,a.w,b.x,b.y,b.w,sg.dark?'#666':'#6c6c6c');
+  if(!sg.dark){for(let l=1;l<LANES;l++){const lx1=a.x-a.w+2*a.w*l/LANES,lx2=b.x-b.w+2*b.w*l/LANES;poly(lx1,a.y,a.w/40,lx2,b.y,b.w/40,'#fff')}}
+  if(sg.i>=LEN-4&&sg.i<LEN-2)poly(a.x,a.y,a.w,b.x,b.y,b.w,(sg.i%2)?'#000':'#fff');
+  maxy=b.y;
+ }
+ // collect sprites back to front
+ for(let n=DRAW-1;n>0;n--){const sg=segs[(bi+n)%LEN];if(!sg.vis)continue;const s=sg.ss*W/2*RW/1000*0.5;
+  for(const sp of sg.sprites)list.push(()=>drawSprite(sp,sg.sx+sp.x*sg.sw,sg.sy,s*1.2));
+  const ents=[];for(const c of cars)if(seg(c.z)===sg&&c.z>P.z-200)ents.push(['c',c]);for(const r of riders)if(seg(r.z)===sg&&r.z>P.z-250)ents.push(['r',r]);
+  for(const [t,e] of ents){const ex=sg.sx+e.x*sg.sw,ey=sg.sy;if(ey>sg.clip+5)continue;list.push(t==='c'?()=>drawCar(ex,ey,s,e):()=>{drawBike(ex,ey,s,e);if(s>0.25){g.fillStyle='#fff';g.font='bold '+Math.round(12+s*6)+'px Arial';g.textAlign='center';g.fillText(e.name,ex,ey-150*s)}})}
+  for(const f of list)f();list.length=0}
+ // riders right behind/beside player
+ P.atkSide=1;for(const r of riders){r.atkSide=P.x>r.x?1:-1}
+ const near=riders.find(r=>Math.abs(r.z-P.z)<SEG*1.5&&Math.abs(r.x-P.x)<0.6);if(near)P.atkSide=near.x>P.x?1:-1;
+ drawBike(W/2,H-20,Math.min(W,H)/520,P,true);
+ hud()}
+function bar(x,y,w,h,v,c){g.fillStyle='#000a';g.fillRect(x,y,w,h);g.fillStyle=c;g.fillRect(x+2,y+2,(w-4)*Math.max(0,v),h-4)}
+function hud(){const u=Math.max(.55,Math.min(1,H/520));g.save();g.scale(u,u);const W0=W;{const W=W0/u,H0=H/u;g.textAlign='left';g.fillStyle='#000a';g.fillRect(10,10,240,110);g.fillStyle='#fff';g.font='bold 22px Arial';
+ g.fillText(Math.round(P.s/MAXS*190)+' km/h',20,38);g.fillText('POS '+(P.fin||position())+'/'+(riders.length+1),20,66);
+ g.font='14px Arial';g.fillText('HEALTH',20,90);bar(85,78,155,16,P.hp/100,P.hp>40?'#3d3':'#e33');
+ g.fillStyle='#fff';g.fillText('PROGRESS',20,112);bar(105,100,135,14,Math.min(1,P.z/TRACK()),'#fc0');
+ g.textAlign='right';g.font='13px Arial';g.fillStyle='#fffa';g.fillText('Developer: Aditya Solanki',W-12,22);
+ if(msgT>0){g.textAlign='center';g.font='bold 34px Arial';g.fillStyle='#ff0';g.strokeStyle='#000';g.lineWidth=4;g.strokeText(msg,W/2,H0*0.25);g.fillText(msg,W/2,H0*0.25)}
+ if(P.fin){g.textAlign='center';g.font='bold 50px Arial';g.fillStyle='#fff';g.fillText('FINISH!',W/2,H0*0.4)}}g.restore()}
+function screen(title,lines){g.fillStyle='#000c';g.fillRect(0,0,W,H);g.textAlign='center';
+ g.fillStyle='#f33';g.font='bold '+Math.min(90,W/8)+'px Impact,Arial';g.fillText(title,W/2,H*0.22);
+ g.fillStyle='#ffd23a';g.font='bold '+Math.min(44,W/16)+'px Arial';g.fillText('Developer: Aditya Solanki',W/2,H*0.34);
+ const lh=Math.min(32,H*0.52/lines.length);g.fillStyle='#fff';g.font=Math.min(22,W/28,lh*0.8)+'px Arial';lines.forEach((l,i)=>g.fillText(l,W/2,H*0.44+i*lh))}
+let last=performance.now();
+function loop(t){const dt=Math.max(0,Math.min(0.05,(t-last)/1000));last=t;
+ if(state==='race'){update(dt);render()}
+ else if(state==='title'){if(!P)reset();P.z+=MAXS*0.3*dt;render();screen('ROAD RASH',['Left: ◀ ▶ steer   Right: GAS, BRAKE, PUNCH, KICK','AUTO GAS button = gas apne aap (keyboard: WASD + J/K)','Avoid traffic! Knock rivals off their bikes!','','TAP ANYWHERE TO START'])}
+ else{render();const ord=finishOrder.map((r,i)=>(i+1)+'. '+r.name);screen(bestPos===1?'YOU WIN!':'RESULT',['You finished '+bestPos+' / '+(riders.length+1)+'   Time: '+(P.time||0).toFixed(1)+'s',...ord.slice(0,6),'TAP ANYWHERE TO RESTART'])}
+ requestAnimationFrame(loop)}
+requestAnimationFrame(loop);
+</script></body></html>
